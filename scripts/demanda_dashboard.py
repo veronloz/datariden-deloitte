@@ -312,3 +312,64 @@ if __name__ == "__main__":
     print("=== FIN DEBUG ===")
     
     dashboard.launch(share=False)
+
+def build_demanda_tab(parent_blocks=None):
+    """Devuelve el bloque (tab) de análisis de demanda."""
+    with gr.Tab("🚇 Demanda Metro Barcelona"):
+        gr.Markdown("""
+        # 🚇 Dashboard de Análisis de Demanda - Metro Barcelona
+        ### Visualización de líneas por volumen de viajeros - 1er Semestre 2025
+        *Datos reales extraídos del archivo Excel proporcionado*
+        """)
+        
+        with gr.Row():
+            with gr.Column(scale=1):
+                sort_dropdown = gr.Dropdown(
+                    choices=["Descendente", "Ascendente"],
+                    value="Descendente",
+                    label="🎯 Orden de clasificación",
+                    info="Ordenar de mayor a menor demanda o viceversa"
+                )
+                
+                gr.Markdown("### 📋 Líneas Analizadas")
+                gr.Markdown("""
+                - Línea 1
+                - Línea 2  
+                - Línea 3
+                - Línea 4
+                - Línea 5
+                - Línea 9/10 Nord
+                - Línea 9/10 Sud
+                - Línea 11
+                - Funicular
+                
+                **Período:** Enero - Junio 2025  
+                **Fuente:** Datos mensuales acumulados
+                """)
+                
+            with gr.Column(scale=2):
+                with gr.Row():
+                    chart_output = gr.Image(label="📊 Gráfico de Líneas por Demanda", height=500)
+                
+                with gr.Row():
+                    analysis_output = gr.Markdown(label="📈 Análisis Detallado")
+        
+        # Interacciones
+        sort_dropdown.change(
+            fn=update_dashboard,
+            inputs=sort_dropdown,
+            outputs=[chart_output, analysis_output]
+        )
+        
+        # Carga inicial
+        if parent_blocks:
+            parent_blocks.load(
+                fn=lambda: update_dashboard("Descendente"),
+                outputs=[chart_output, analysis_output]
+            )
+
+# Solo lanza el dashboard si este script se ejecuta directamente
+if __name__ == "__main__":
+    with gr.Blocks(theme=gr.themes.Soft(), title="Dashboard de Análisis de Demanda") as dashboard:
+        build_demanda_tab()
+    dashboard.launch(share=False)
