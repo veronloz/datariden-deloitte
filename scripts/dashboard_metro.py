@@ -1,43 +1,129 @@
+#!/usr/bin/env python3
 import gradio as gr
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
 import numpy as np
 
+
 def parse_data_from_content():
-    """Parse the data directly from the provided content"""
-    
-    # Extract line totals from the provided data
-    lines_data = {}
-    
-    # Línea 1
-    lines_data['LÍNIA 1'] = 63780977.95031774
-    
-    # Línea 2
-    lines_data['LÍNIA 2'] = 26473229.063012976
-    
-    # Línea 3
-    lines_data['LÍNIA 3'] = 45112195.2744986
-    
-    # Línea 4
-    lines_data['LÍNIA 4'] = 30740378.18746676
-    
-    # Línea 5
-    lines_data['LÍNIA 5'] = 61019322.68223789
-    
-    # Línea 9/10 Nord
-    lines_data['LÍNIA 9/10 NORD'] = 6756971.69
-    
-    # Línea 9/10 Sud
-    lines_data['LÍNIA 9/10 SUD'] = 9520422.84
-    
-    # Línea 11
-    lines_data['LÍNIA 11'] = 716876.7896539989
-    
-    # Funicular
-    lines_data['FUNICULAR'] = 498016.52281203633
-    
-    return lines_data
+    """Robust parser: detecta bloques por título, localiza la fila de encabezado y la columna
+    'ACUMULAT', y obtiene el total de cada bloque (última fila numérica).
+    """
+
+    file_path = "/home/veron/Documents/Hackaton-25/dataset/Datasets Barcelona/Resum dades mensuals i diàries de viatgers FMB 2025_1er Semestre.xlsx"
+    import os
+    try:
+        print(f"Intentando abrir el archivo: {file_path}")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(file_path)
+
+        # Leer la hoja sin headers
+        df = pd.read_excel(file_path, sheet_name='Mensuals', header=None)
+        print(f"Archivo leído. Dimensiones: {df.shape}")
+
+        # Localizar filas título que marcan bloques
+        title_rows = []
+        for idx, row in df.iterrows():
+            for cell in row:
+                if isinstance(cell, str) and 'VIATGERS REALS LÍNIA' in cell.upper():
+                    title_rows.append(idx)
+                    break
+                if isinstance(cell, str) and 'FUNICULAR' == cell.strip().upper():
+                    # Funicular puede estar tratado como bloque independiente
+                    title_rows.append(idx)
+                    break
+
+        if not title_rows:
+            print("No se encontraron bloques de línea en la hoja 'Mensuals'")
+            raise ValueError("No hay bloques detectados")
+
+        lines_data = {}
+
+        # función auxiliar para buscar encabezado y columna ACUMULAT
+        def find_header_and_acumulat(start_idx, look_ahead=12):
+            end = min(start_idx + look_ahead, len(df))
+            for r in range(start_idx, end):
+                row = df.iloc[r]
+                row_text = ' '.join([str(x) for x in row if pd.notna(x)])
+                up = row_text.upper()
+                if 'LÍNIA' in up or 'LINIA' in up:
+                    if 'ACUMULAT' in up:
+                        # localizar índice exacto de ACUMULAT
+                        for col_idx, val in enumerate(row):
+                            if pd.notna(val) and isinstance(val, str) and 'ACUMULAT' in val.upper():
+                                return r, col_idx
+            return None, None
+
+        for i, t_idx in enumerate(title_rows):
+            header_idx, acumulat_col = find_header_and_acumulat(t_idx + 1)
+            block_start = header_idx + 1 if header_idx is not None else t_idx + 1
+            block_end = title_rows[i+1] if i+1 < len(title_rows) else len(df)
+
+            # obtener título original
+            title_cell = df.iloc[t_idx].dropna().values
+            title_text = str(title_cell[0]) if len(title_cell) > 0 else f"LÍNIA_{i+1}"
+            # extraer nombre de línea (desde 'LÍNIA' hasta '(' si existe)
+            up = title_text.upper()
+            if 'LÍNIA' in up:
+                pos = up.find('LÍNIA')
+                line_name = title_text[pos:].split('(')[0].strip()
+            elif 'FUNICULAR' in up:
+                line_name = 'FUNICULAR'
+            else:
+                line_name = title_text
+
+            print(f"\nProcesando bloque '{line_name}': filas {block_start}..{block_end-1}")
+
+            if header_idx is None or acumulat_col is None:
+                print(f"  No se encontró encabezado/columna ACUMULAT para {line_name}; saltando")
+                continue
+
+            print(f"  Encabezado en fila {header_idx}, columna ACUMULAT={acumulat_col}")
+
+            # obtener el total del bloque (última fila con valor numérico en ACUMULAT)
+            total = None
+            total_row = None
+            # buscar de abajo hacia arriba para encontrar el total
+            for ridx in range(block_end - 1, block_start - 1, -1):
+                if ridx >= len(df):
+                    continue
+                raw_val = df.iloc[ridx, acumulat_col] if acumulat_col < len(df.columns) else None
+                if pd.notna(raw_val):
+                    val = pd.to_numeric(raw_val, errors='coerce')
+                    if pd.notna(val):
+                        total = float(val)
+                        total_row = ridx
+                        print(f"  Total encontrado en fila {ridx+1}: {total:,.2f}")
+                        break
+
+            if total is None:
+                print(f"  No se encontró total para {line_name}")
+                continue
+
+            # para debug: mostrar contexto alrededor del total
+            print(f"\n  Contexto alrededor del total (filas {max(total_row-1, 0)+1}..{min(total_row+2, len(df))})")
+            for r in range(max(total_row-1, 0), min(total_row+2, len(df))):
+                row_vals = [str(x) for x in df.iloc[r, max(0, acumulat_col-1):acumulat_col+1] if pd.notna(x)]
+                if row_vals:
+                    print(f"  Fila {r+1}: {' | '.join(row_vals)}")
+
+            print(f"  Total validado para {line_name}: {total:,.2f}")
+            if total > 0:
+                lines_data[line_name] = total
+
+        if lines_data:
+            print("\nTotales detectados por línea:")
+            for k, v in lines_data.items():
+                print(f"  {k}: {v:,.2f}")
+            return lines_data
+
+        print("No se extrajeron totales")
+        return {}
+
+    except Exception as e:
+        print(f"Error procesando Excel: {e}")
+        return {}
 
 def create_bar_chart(sort_order="Descendente"):
     """Create a bar chart of lines by passenger volume"""
@@ -216,12 +302,13 @@ if __name__ == "__main__":
     # Test data parsing
     print("=== INICIO DEBUG ===")
     data = parse_data_from_content()
-    print("Datos parseados:")
+    print("\nDatos parseados:")
     for line, passengers in data.items():
-        print(f"  {line}: {passengers:,.0f} viajeros")
+        print(f"  {line}: {passengers:,.2f} viajeros")
     
-    total = sum(data.values())
-    print(f"Total viajeros: {total:,.0f}")
+    if data:
+        total = sum(data.values())
+        print(f"\nTotal viajeros: {total:,.2f}")
     print("=== FIN DEBUG ===")
     
     dashboard.launch(share=False)
