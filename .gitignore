@@ -7,4 +7,3 @@ __pycache__/
 *.sqlite3
 *.log
 .DS_Store
-*.xlsx
