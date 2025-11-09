@@ -16,14 +16,14 @@ OUTPUT_CSV = "analisis_transporte_poblacion.csv"
 DISTRITOS_COORDS = {
     'Ciutat Vella': [41.3851, 2.1734],
     'Eixample': [41.3874, 2.1686],
-    'Sants-Montjuïc': [41.3715, 2.1448],
+    'Sants-Montjuic': [41.3715, 2.1448],
     'Les Corts': [41.3856, 2.1195],
     'Sarrià-Sant Gervasi': [41.3961, 2.1437],
     'Gràcia': [41.4075, 2.1696],
     'Horta-Guinardó': [41.4278, 2.2145],
     'Nou Barris': [41.4351, 2.1886],
     'Sant Andreu': [41.4335, 2.1806],
-    'Sant Martí': [41.4088, 2.2190]
+    'Sant Martí­': [41.4088, 2.2190]
 }
 
 # --- 2. Funció principal de l'anàlisi ---
@@ -219,7 +219,8 @@ def analyze_estaciones_por_distrito(dummy=None):
 
 def create_heatmap_distritos(dummy=None):
     """
-    Funció que crea un mapa interactiu amb Folium on els distritos amb més estacions apareixen més rojo.
+    Funció que crea un mapa interactiu amb Folium on els distritos es resalten 
+    amb colors segons el nombre d'estacions de metro en els popups.
     """
     try:
         # Comprovar si el fitxer existeix
@@ -236,11 +237,11 @@ def create_heatmap_distritos(dummy=None):
             return (None, "Error: No s'han trobat dades de metro")
         
         # Contar estacions per districte
-        estacions_per_distrito = df_metro.groupby('NOM_DISTRICTE').size().reset_index(name='Nombre_Estaciones')
+        estaciones_per_distrito = df_metro.groupby('NOM_DISTRICTE').size().reset_index(name='Nombre_Estaciones')
         
         # Obtenir min i max per normalitzar colors
-        min_estaciones = estacions_per_distrito['Nombre_Estaciones'].min()
-        max_estaciones = estacions_per_distrito['Nombre_Estaciones'].max()
+        min_estaciones = estaciones_per_distrito['Nombre_Estaciones'].min()
+        max_estaciones = estaciones_per_distrito['Nombre_Estaciones'].max()
         
         # Crear mapa centrat en Barcelona
         mapa = folium.Map(
@@ -251,23 +252,46 @@ def create_heatmap_distritos(dummy=None):
         
         # Función para normalizar colores (de amarillo a rojo según número de estaciones)
         def get_color(num_estaciones):
-            # Normalizar entre 0 y 1
-            normalized = (num_estaciones - min_estaciones) / (max_estaciones - min_estaciones) if max_estaciones > min_estaciones else 0.5
+            # Normalizar entre 0 y 1 (0 = pocos, 1 = muchos)
+            if max_estaciones > min_estaciones:
+                normalized = (num_estaciones - min_estaciones) / (max_estaciones - min_estaciones)
+            else:
+                normalized = 0.5
             
             # Crear color de transición amarillo -> naranja -> rojo
             if normalized < 0.33:
-                # Amarillo a Naranja
-                r, g, b = 255, int(165 + (normalized / 0.33) * 90), 0
+                # Amarillo a Naranja (0.0 a 0.33)
+                r, g = 255, int(165 + (normalized / 0.33) * 90)
+                b = 0
             elif normalized < 0.66:
-                # Naranja a Rojo oscuro
-                r, g, b = 255, int(255 - ((normalized - 0.33) / 0.33) * 140), 0
+                # Naranja a Rojo oscuro (0.33 a 0.66)
+                r, g = 255, int(255 - ((normalized - 0.33) / 0.33) * 140)
+                b = 0
             else:
-                # Rojo oscuro a Rojo brillante
-                r, g, b = 255, int(115 - ((normalized - 0.66) / 0.34) * 115), 0
+                # Rojo oscuro a Rojo brillante (0.66 a 1.0)
+                r, g = 255, int(115 - ((normalized - 0.66) / 0.34) * 115)
+                b = 0
             
             return f'#{int(r):02x}{int(g):02x}{int(b):02x}'
         
-        # Agregar círculos para cada distrito
+        # Función para obtener color de Folium más cercano al color hex
+        def get_folium_color(num_estaciones):
+            if max_estaciones > min_estaciones:
+                normalized = (num_estaciones - min_estaciones) / (max_estaciones - min_estaciones)
+            else:
+                normalized = 0.5
+            
+            # Primero: si está en el tercio inferior -> amarillo
+            if normalized < 0.33:
+                return 'yellow'
+            # Segundo tercio -> naranja
+            elif normalized < 0.66:
+                return 'orange'
+            # Tercio superior -> rojo
+            else:
+                return 'red'
+        
+        # Agregar marcadores con popups de color para cada distrito
         for idx, row in estaciones_per_distrito.iterrows():
             distrito = row['NOM_DISTRICTE']
             num_estaciones = row['Nombre_Estaciones']
@@ -281,39 +305,56 @@ def create_heatmap_distritos(dummy=None):
             
             color = get_color(num_estaciones)
             
-            # Crear popup con información
-            popup_text = f"<b>{distrito}</b><br>Estaciones: {num_estaciones}"
+            # Crear HTML personalizado para el popup con color
+            popup_html = f"""
+            <div style="font-family: Arial; width: 220px;">
+                <div style="background-color: {color}; padding: 10px; border-radius: 5px 5px 0 0; color: white;">
+                    <h4 style="margin: 0; font-size: 16px; font-weight: bold;">{distrito}</h4>
+                </div>
+                <div style="background-color: #f0f0f0; padding: 12px; border-radius: 0 0 5px 5px; border: 1px solid #ddd;">
+                    <p style="margin: 5px 0;"><b>🚇 Estaciones:</b> {num_estaciones}</p>
+                    <p style="margin: 5px 0; font-size: 12px; color: #666;">Metro Barcelona</p>
+                </div>
+            </div>
+            """
             
-            # Agregar círculo al mapa
-            folium.Circle(
-                location=coords,
-                radius=800 + (num_estaciones * 200),  # Radio proporcional al número de estaciones
-                popup=folium.Popup(popup_text, max_width=200),
-                color=color,
-                fill=True,
-                fillColor=color,
-                fillOpacity=0.7,
-                weight=2
-            ).add_to(mapa)
-            
-            # Agregar etiqueta con el número de estaciones
+            # Crear marcador con icono de color
             folium.Marker(
                 location=coords,
-                popup=popup_text,
-                icon=folium.Icon(color='gray', icon='info-sign')
+                popup=folium.Popup(popup_html, max_width=280),
+                icon=folium.Icon(
+                    color=get_folium_color(num_estaciones),
+                    icon='subway',
+                    prefix='fa'
+                ),
+                tooltip=f"{distrito}: {num_estaciones} estaciones"
             ).add_to(mapa)
         
         # Agregar leyenda
         legend_html = '''
         <div style="position: fixed; 
-                bottom: 50px; right: 50px; width: 300px; height: 200px; 
-                background-color: white; border:2px solid grey; z-index:9999; 
-                font-size:14px; padding: 10px">
-                <p style="margin: 0 0 10px 0; font-weight: bold;">🚇 Estaciones de Metro por Distrito</p>
-                <p style="margin: 5px 0;"><span style="background-color: #FFD700; width: 20px; height: 20px; display: inline-block; border-radius: 50%;"></span> Pocas estaciones</p>
-                <p style="margin: 5px 0;"><span style="background-color: #FFA500; width: 20px; height: 20px; display: inline-block; border-radius: 50%;"></span> Estaciones medias</p>
-                <p style="margin: 5px 0;"><span style="background-color: #FF0000; width: 20px; height: 20px; display: inline-block; border-radius: 50%;"></span> Muchas estaciones</p>
-                <p style="margin: 10px 0 0 0; font-size: 12px;"><b>Min:</b> {min_est} | <b>Max:</b> {max_est}</p>
+                bottom: 50px; right: 50px; width: 280px; height: 220px; 
+                background-color: white; border: 2px solid grey; z-index: 9999; 
+                font-size: 14px; padding: 15px; border-radius: 5px;
+                box-shadow: 0 0 15px rgba(0,0,0,0.2);">
+                <p style="margin: 0 0 12px 0; font-weight: bold; font-size: 16px;">🚇 Estaciones por Distrito</p>
+                <hr style="margin: 8px 0;">
+                <p style="margin: 8px 0; font-size: 13px;">
+                    <span style="display: inline-block; background-color: #FFD700; width: 18px; height: 18px; border-radius: 50%; margin-right: 8px;"></span>
+                    Pocas estaciones
+                </p>
+                <p style="margin: 8px 0; font-size: 13px;">
+                    <span style="display: inline-block; background-color: #FFA500; width: 18px; height: 18px; border-radius: 50%; margin-right: 8px;"></span>
+                    Estaciones medias
+                </p>
+                <p style="margin: 8px 0; font-size: 13px;">
+                    <span style="display: inline-block; background-color: #FF0000; width: 18px; height: 18px; border-radius: 50%; margin-right: 8px;"></span>
+                    Muchas estaciones
+                </p>
+                <hr style="margin: 10px 0;">
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: #666;">
+                    <b>Rango:</b> {min_est} - {max_est} estaciones
+                </p>
         </div>
         '''.format(min_est=min_estaciones, max_est=max_estaciones)
         
@@ -323,7 +364,7 @@ def create_heatmap_distritos(dummy=None):
         mapa_file = "mapa_estaciones_distritos.html"
         mapa.save(mapa_file)
         
-        return (mapa_file, "Mapa creado correctamente")
+        return (mapa_file, "✅ Mapa creado correctamente")
     
     except Exception as e:
         error_message = f"Error durant la creació del mapa: {str(e)}"
@@ -435,6 +476,45 @@ def build_cobertura_tab(parent_blocks=None):
                         chart_pie,
                         data_distritos,
                         status_box_dist
+                    ]
+                )
+            
+            # ===== PESTAÑA 3: MAPA HEATMAP CON FOLIUM =====
+            with gr.Tab("🗺️ Mapa de Calor por Distrito"):
+                gr.Markdown(
+                    """
+                    ## Mapa Interactivo de Estaciones de Metro
+                    Este mapa muestra la densidad de estaciones de metro por distrito:
+                    - 🟡 **Amarillo**: Pocos estaciones
+                    - 🟠 **Naranja**: Estaciones medias
+                    - 🔴 **Rojo**: Muchas estaciones
+                    
+                    El tamaño del círculo también indica la cantidad de estaciones.
+                    """
+                )
+                
+                # State for button
+                dummy_input_map = gr.State(value=0)
+                
+                # Button to create map
+                btn_run_map = gr.Button("Crear Mapa de Calor", variant="primary", size="lg")
+                
+                # Status box
+                status_box_map = gr.Textbox(label="Estat de la Creació", interactive=False)
+                
+                # Map output
+                map_output = gr.File(label="📍 Descargar Mapa (HTML)")
+                
+                # HTML viewer for inline display
+                map_html = gr.HTML(label="Vista previa del mapa")
+                
+                # Connect button to function
+                btn_run_map.click(
+                    fn=create_heatmap_distritos,
+                    inputs=dummy_input_map,
+                    outputs=[
+                        map_output,
+                        status_box_map
                     ]
                 )
 
