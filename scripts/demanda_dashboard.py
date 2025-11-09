@@ -11,7 +11,7 @@ def parse_data_from_content():
     'ACUMULAT', y obtiene el total de cada bloque (última fila numérica).
     """
 
-    file_path = "/home/veron/Documents/Hackaton-25/dataset/Datasets Barcelona/Resum dades mensuals i diàries de viatgers FMB 2025_1er Semestre.xlsx"
+    file_path = "dataset/Datasets Barcelona/Resum dades mensuals i diàries de viatgers FMB 2025_1er Semestre.xlsx"
     import os
     try:
         print(f"Intentando abrir el archivo: {file_path}")
@@ -132,6 +132,17 @@ def create_bar_chart(sort_order="Descendente"):
         
         print("Datos para el gráfico:", data)  # Debug
         
+        # Check if data is empty
+        if not data:
+            temp_file = "temp_chart.png"
+            plt.figure(figsize=(10, 6))
+            plt.text(0.5, 0.5, 'No hay datos disponibles para mostrar', ha='center', va='center', 
+                    transform=plt.gca().transAxes, fontsize=14, color='red')
+            plt.axis('off')
+            plt.savefig(temp_file, format='png')
+            plt.close()
+            return temp_file
+        
         # Convert to DataFrame for easier manipulation
         df = pd.DataFrame(list(data.items()), columns=['Línea', 'Viajeros'])
         
@@ -190,8 +201,16 @@ def generate_analysis():
     try:
         data = parse_data_from_content()
         
+        # Check if data is empty
+        if not data:
+            return "**Error en el análisis:** No se encontraron datos de líneas"
+        
         df = pd.DataFrame(list(data.items()), columns=['Línea', 'Viajeros'])
         df_sorted = df.sort_values('Viajeros', ascending=False)
+        
+        # Check if we have at least 3 lines
+        if len(df_sorted) < 3:
+            return f"**Error en el análisis:** Se encontraron solo {len(df_sorted)} línea(s), se requieren al menos 3"
         
         total_passengers = df['Viajeros'].sum()
         top_line = df_sorted.iloc[0]

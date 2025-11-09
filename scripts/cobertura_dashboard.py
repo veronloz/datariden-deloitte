@@ -3,12 +3,28 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import folium
+from folium import plugins
 
 # --- 1. Definir noms de fitxers ---
 # Fem servir els noms de fitxer exactes que existeixen al directori
-FILE_POBLACIO = "Densitat Poblacio Barcelona 2021.xlsx"
-FILE_TRANSPORT = "Transport Public Barcelona.xlsx"
+FILE_POBLACIO = "dataset/Datasets Barcelona/Densitat Poblacio Barcelona 2021.xlsx"
+FILE_TRANSPORT = "dataset/Datasets Barcelona/Transport Public Barcelona.xlsx"
 OUTPUT_CSV = "analisis_transporte_poblacion.csv"
+
+# --- Coordenadas aproximadas de los distritos de Barcelona ---
+DISTRITOS_COORDS = {
+    'Ciutat Vella': [41.3851, 2.1734],
+    'Eixample': [41.3874, 2.1686],
+    'Sants-Montjuïc': [41.3715, 2.1448],
+    'Les Corts': [41.3856, 2.1195],
+    'Sarrià-Sant Gervasi': [41.3961, 2.1437],
+    'Gràcia': [41.4075, 2.1696],
+    'Horta-Guinardó': [41.4278, 2.2145],
+    'Nou Barris': [41.4351, 2.1886],
+    'Sant Andreu': [41.4335, 2.1806],
+    'Sant Martí': [41.4088, 2.2190]
+}
 
 # --- 2. Funció principal de l'anàlisi ---
 def analyze_data(dummy=None):
@@ -129,6 +145,190 @@ def analyze_data(dummy=None):
         error_message = f"Error durant l'anàlisi: {str(e)}"
         return (None, None, None, None, None, error_message)
 
+def analyze_estaciones_por_distrito(dummy=None):
+    """
+    Funció que analitza les estacions de metro per districte i retorna visualitzacions.
+    """
+    try:
+        # Comprovar si el fitxer existeix
+        if not os.path.exists(FILE_TRANSPORT):
+            return (None, None, None, f"Error: No s'ha trobat el fitxer {FILE_TRANSPORT}")
+
+        # Carregar dades de transport
+        df_transport = pd.read_excel(FILE_TRANSPORT, sheet_name='Parades Transport Public Barcel')
+        
+        # Filtrar per Metro
+        df_metro = df_transport[df_transport['NOM_CAPA'].str.contains('Metro', na=False)].copy()
+        
+        if df_metro.empty:
+            return (None, None, None, "Error: No s'han trobat dades de metro")
+        
+        # Contar estacions per districte
+        estacions_per_distrito = df_metro.groupby('NOM_DISTRICTE').size().reset_index(name='Nombre_Estaciones')
+        estacions_per_distrito = estacions_per_distrito.sort_values('Nombre_Estaciones', ascending=False)
+        
+        # Gràfic 1: Barres amb número de estacions per districte
+        fig1, ax1 = plt.subplots(figsize=(12, 7))
+        colors = plt.cm.Set3(np.linspace(0, 1, len(estacions_per_distrito)))
+        bars = ax1.bar(estacions_per_distrito['NOM_DISTRICTE'], estacions_per_distrito['Nombre_Estaciones'], 
+                      color=colors, edgecolor='black', alpha=0.8)
+        ax1.set_title('Estaciones de Metro por Distrito en Barcelona', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Distrito', fontsize=12, fontweight='bold')
+        ax1.set_ylabel('Número de Estaciones', fontsize=12, fontweight='bold')
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(axis='y', alpha=0.3, linestyle='--')
+        
+        # Añadir etiquetas en las barras
+        for bar in bars:
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}',
+                    ha='center', va='bottom', fontweight='bold')
+        plt.tight_layout()
+        
+        # Gràfic 2: Gràfic circular (pie chart)
+        fig2, ax2 = plt.subplots(figsize=(10, 8))
+        colors_pie = plt.cm.Set3(np.linspace(0, 1, len(estacions_per_distrito)))
+        wedges, texts, autotexts = ax2.pie(estacions_per_distrito['Nombre_Estaciones'], 
+                                             labels=estacions_per_distrito['NOM_DISTRICTE'],
+                                             autopct='%1.1f%%',
+                                             colors=colors_pie,
+                                             startangle=90)
+        ax2.set_title('Distribución de Estaciones de Metro por Distrito', fontsize=14, fontweight='bold')
+        
+        # Mejorar legibilidad
+        for text in texts:
+            text.set_fontsize(9)
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontweight('bold')
+            autotext.set_fontsize(9)
+        plt.tight_layout()
+        
+        # Retornar gràfics i dades
+        return (
+            fig1,
+            fig2,
+            estacions_per_distrito,
+            "Anàlisi completada amb èxit."
+        )
+    
+    except Exception as e:
+        error_message = f"Error durant l'anàlisi: {str(e)}"
+        return (None, None, None, error_message)
+
+def create_heatmap_distritos(dummy=None):
+    """
+    Funció que crea un mapa interactiu amb Folium on els distritos amb més estacions apareixen més rojo.
+    """
+    try:
+        # Comprovar si el fitxer existeix
+        if not os.path.exists(FILE_TRANSPORT):
+            return (None, f"Error: No s'ha trobat el fitxer {FILE_TRANSPORT}")
+
+        # Carregar dades de transport
+        df_transport = pd.read_excel(FILE_TRANSPORT, sheet_name='Parades Transport Public Barcel')
+        
+        # Filtrar per Metro
+        df_metro = df_transport[df_transport['NOM_CAPA'].str.contains('Metro', na=False)].copy()
+        
+        if df_metro.empty:
+            return (None, "Error: No s'han trobat dades de metro")
+        
+        # Contar estacions per districte
+        estacions_per_distrito = df_metro.groupby('NOM_DISTRICTE').size().reset_index(name='Nombre_Estaciones')
+        
+        # Obtenir min i max per normalitzar colors
+        min_estaciones = estacions_per_distrito['Nombre_Estaciones'].min()
+        max_estaciones = estacions_per_distrito['Nombre_Estaciones'].max()
+        
+        # Crear mapa centrat en Barcelona
+        mapa = folium.Map(
+            location=[41.3851, 2.1734],  # Coordenadas de Barcelona
+            zoom_start=12,
+            tiles='OpenStreetMap'
+        )
+        
+        # Función para normalizar colores (de amarillo a rojo según número de estaciones)
+        def get_color(num_estaciones):
+            # Normalizar entre 0 y 1
+            normalized = (num_estaciones - min_estaciones) / (max_estaciones - min_estaciones) if max_estaciones > min_estaciones else 0.5
+            
+            # Crear color de transición amarillo -> naranja -> rojo
+            if normalized < 0.33:
+                # Amarillo a Naranja
+                r, g, b = 255, int(165 + (normalized / 0.33) * 90), 0
+            elif normalized < 0.66:
+                # Naranja a Rojo oscuro
+                r, g, b = 255, int(255 - ((normalized - 0.33) / 0.33) * 140), 0
+            else:
+                # Rojo oscuro a Rojo brillante
+                r, g, b = 255, int(115 - ((normalized - 0.66) / 0.34) * 115), 0
+            
+            return f'#{int(r):02x}{int(g):02x}{int(b):02x}'
+        
+        # Agregar círculos para cada distrito
+        for idx, row in estaciones_per_distrito.iterrows():
+            distrito = row['NOM_DISTRICTE']
+            num_estaciones = row['Nombre_Estaciones']
+            
+            # Obtener coordenadas (usar las predefinidas o calcular)
+            if distrito in DISTRITOS_COORDS:
+                coords = DISTRITOS_COORDS[distrito]
+            else:
+                # Si no existe en el diccionario, intentar usar coordenadas de los datos
+                continue
+            
+            color = get_color(num_estaciones)
+            
+            # Crear popup con información
+            popup_text = f"<b>{distrito}</b><br>Estaciones: {num_estaciones}"
+            
+            # Agregar círculo al mapa
+            folium.Circle(
+                location=coords,
+                radius=800 + (num_estaciones * 200),  # Radio proporcional al número de estaciones
+                popup=folium.Popup(popup_text, max_width=200),
+                color=color,
+                fill=True,
+                fillColor=color,
+                fillOpacity=0.7,
+                weight=2
+            ).add_to(mapa)
+            
+            # Agregar etiqueta con el número de estaciones
+            folium.Marker(
+                location=coords,
+                popup=popup_text,
+                icon=folium.Icon(color='gray', icon='info-sign')
+            ).add_to(mapa)
+        
+        # Agregar leyenda
+        legend_html = '''
+        <div style="position: fixed; 
+                bottom: 50px; right: 50px; width: 300px; height: 200px; 
+                background-color: white; border:2px solid grey; z-index:9999; 
+                font-size:14px; padding: 10px">
+                <p style="margin: 0 0 10px 0; font-weight: bold;">🚇 Estaciones de Metro por Distrito</p>
+                <p style="margin: 5px 0;"><span style="background-color: #FFD700; width: 20px; height: 20px; display: inline-block; border-radius: 50%;"></span> Pocas estaciones</p>
+                <p style="margin: 5px 0;"><span style="background-color: #FFA500; width: 20px; height: 20px; display: inline-block; border-radius: 50%;"></span> Estaciones medias</p>
+                <p style="margin: 5px 0;"><span style="background-color: #FF0000; width: 20px; height: 20px; display: inline-block; border-radius: 50%;"></span> Muchas estaciones</p>
+                <p style="margin: 10px 0 0 0; font-size: 12px;"><b>Min:</b> {min_est} | <b>Max:</b> {max_est}</p>
+        </div>
+        '''.format(min_est=min_estaciones, max_est=max_estaciones)
+        
+        mapa.get_root().html.add_child(folium.Element(legend_html))
+        
+        # Guardar mapa a archivo HTML
+        mapa_file = "mapa_estaciones_distritos.html"
+        mapa.save(mapa_file)
+        
+        return (mapa_file, "Mapa creado correctamente")
+    
+    except Exception as e:
+        error_message = f"Error durant la creació del mapa: {str(e)}"
+        return (None, error_message)
+
 def build_cobertura_tab(parent_blocks=None):
     """
     Construeix la pestanya de cobertura de transport, integrada en el dashboard global.
@@ -150,50 +350,93 @@ def build_cobertura_tab(parent_blocks=None):
             """
         )
         
-        # State to store a dummy input for the button click
-        dummy_input = gr.State(value=0)
-        
-        # Botó principal per executar l'anàlisi
-        btn_run = gr.Button("Executar Anàlisi", variant="primary", size="lg")
-        
-        # Caixa de text per mostrar l'estat (èxit o error)
-        status_box = gr.Textbox(label="Estat de l'Anàlisi", interactive=False)
-        
-        gr.Markdown("## Resultats de l'Anàlisi")
-        
-        # Pestanya 1: Barris amb més pressió
-        with gr.Tab("Barris amb Més Pressió de Demanda"):
-            gr.Markdown("Aquests barris tenen el ràtio més alt d'habitants per cada estació de metro. Són punts de potencial congestió.")
-            with gr.Row():
-                plot_pressure = gr.Plot(label="Top 10 Barris: Més Població per Estació")
-                data_pressure = gr.DataFrame(label="Dades: Barris amb Més Pressió")
-        
-        # Pestanya 2: Barris amb dèficit de cobertura
-        with gr.Tab("Barris amb Dèficit de Cobertura (Sense Metro)"):
-            gr.Markdown("Aquests són els barris més poblats que actualment no tenen cap estació de metro.")
-            with gr.Row():
-                plot_no_metro = gr.Plot(label="Top 10 Barris: Més Població SENSE Metro")
-                data_no_metro = gr.DataFrame(label="Dades: Barris Més Poblats Sense Metro")
+        with gr.Tabs():
+            # ===== PESTAÑA 1: ANÁLISIS POR BARRIOS =====
+            with gr.Tab("📊 Análisis por Barrios"):
+                # State to store a dummy input for the button click
+                dummy_input = gr.State(value=0)
                 
-        # Pestanya 3: Descàrrega del dataset complet
-        with gr.Tab("Dataset Complet Resultant"):
-            gr.Markdown("Aquí podeu descarregar el fitxer CSV complet amb les dades dels 73 barris i els KPIs calculats.")
-            output_file = gr.File(label="Descarregar Dataset Complet (CSV)")
+                # Botó principal per executar l'anàlisi
+                btn_run = gr.Button("Executar Anàlisi de Barris", variant="primary", size="lg")
+                
+                # Caixa de text per mostrar l'estat (èxit o error)
+                status_box = gr.Textbox(label="Estat de l'Anàlisi", interactive=False)
+                
+                gr.Markdown("## Resultats de l'Anàlisi per Barris")
+                
+                # Sub-tabs para análisis de barrios
+                with gr.Tabs():
+                    # Barris amb més pressió
+                    with gr.Tab("Barris amb Més Pressió de Demanda"):
+                        gr.Markdown("Aquests barris tenen el ràtio més alt d'habitants per cada estació de metro. Són punts de potencial congestió.")
+                        with gr.Row():
+                            plot_pressure = gr.Plot(label="Top 10 Barris: Més Població per Estació")
+                            data_pressure = gr.DataFrame(label="Dades: Barris amb Més Pressió")
+                    
+                    # Barris amb dèficit de cobertura
+                    with gr.Tab("Barris amb Dèficit de Cobertura (Sense Metro)"):
+                        gr.Markdown("Aquests són els barris més poblats que actualment no tenen cap estació de metro.")
+                        with gr.Row():
+                            plot_no_metro = gr.Plot(label="Top 10 Barris: Més Població SENSE Metro")
+                            data_no_metro = gr.DataFrame(label="Dades: Barris Més Poblats Sense Metro")
+                            
+                    # Descàrrega del dataset complet
+                    with gr.Tab("📥 Dataset Complet Resultant"):
+                        gr.Markdown("Aquí podeu descarregar el fitxer CSV complet amb les dades dels 73 barris i els KPIs calculats.")
+                        output_file = gr.File(label="Descarregar Dataset Complet (CSV)")
 
-        # --- 5. Connectar el botó a la funció ---
-        # Defineix què passa quan es fa clic al botó
-        btn_run.click(
-            fn=analyze_data,  # La funció a executar
-            inputs=dummy_input,      # Dummy input per permetre que el click funcioni
-            outputs=[         # Els components de sortida on s'enviaran els resultats
-                plot_pressure, 
-                data_pressure, 
-                plot_no_metro, 
-                data_no_metro, 
-                output_file, 
-                status_box
-            ]
-        )
+                # Connectar el botó a la funció
+                btn_run.click(
+                    fn=analyze_data,
+                    inputs=dummy_input,
+                    outputs=[
+                        plot_pressure, 
+                        data_pressure, 
+                        plot_no_metro, 
+                        data_no_metro, 
+                        output_file, 
+                        status_box
+                    ]
+                )
+            
+            # ===== PESTAÑA 2: ANÁLISIS POR DISTRITOS =====
+            with gr.Tab("🏘️ Análisis por Distritos"):
+                gr.Markdown(
+                    """
+                    ## Estacions de Metro per Districte
+                    Visualiza la distribución de estaciones de metro por cada distrito de Barcelona.
+                    """
+                )
+                
+                # State for button
+                dummy_input_dist = gr.State(value=0)
+                
+                # Button to run analysis
+                btn_run_dist = gr.Button("Executar Anàlisi de Districtes", variant="primary", size="lg")
+                
+                # Status box
+                status_box_dist = gr.Textbox(label="Estat de l'Anàlisi", interactive=False)
+                
+                # Row with both charts
+                with gr.Row():
+                    chart_barras = gr.Plot(label="Gràfic de Barres: Estacions per Districte")
+                    chart_pie = gr.Plot(label="Gràfic Circular: Distribució per Districte")
+                
+                # Dataframe with data
+                with gr.Row():
+                    data_distritos = gr.DataFrame(label="Dades: Estacions per Districte")
+                
+                # Connect button to function
+                btn_run_dist.click(
+                    fn=analyze_estaciones_por_distrito,
+                    inputs=dummy_input_dist,
+                    outputs=[
+                        chart_barras,
+                        chart_pie,
+                        data_distritos,
+                        status_box_dist
+                    ]
+                )
 
 
 # --- 4. Definición de la Interfície de Gradio ---
