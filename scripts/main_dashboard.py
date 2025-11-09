@@ -1,5 +1,6 @@
 import gradio as gr
 from demanda_dashboard import build_demanda_tab
+from cobertura_dashboard import build_cobertura_tab
 # from otra_pestaña import build_otra_tab  # si quieres más pestañas
 
 with gr.Blocks(title="📊 Dashboard Global", theme=gr.themes.Soft()) as main_dashboard:
@@ -8,6 +9,7 @@ with gr.Blocks(title="📊 Dashboard Global", theme=gr.themes.Soft()) as main_da
 
     with gr.Tabs():
         build_demanda_tab(main_dashboard)          # Pestaña 1: Demanda Metro Barcelona
-        # build_otra_tab()           # Pestaña 2: otros análisis (por ejemplo, usuarios)
+        build_cobertura_tab(main_dashboard)        # Pestaña 2: Cobertura de Transport
+        #build_otra_tab()
 
 main_dashboard.launch()
