@@ -3,8 +3,7 @@
 Este proyecto es un **dashboard interactivo** desarrollado con **Python** y **Gradio**, que permite visualizar y analizar datos provenientes de ficheros `.xlsx`.  
 El objetivo es facilitar la exploración de datasets y la creación de gráficos dinámicos a través de una interfaz web sencilla.
 
-Todos los recursos del proyecto están en **Notion**: https://obsidian-alarm-a87.notion.site/Dashboard-2a54119856bd8128
-8af2fc3b662addd8?source=copy_link
+Todos los recursos del proyecto están en **Notion**: https://obsidian-alarm-a87.notion.site/Dashboard-2a54119856bd81288af2fc3b662addd8?source=copy_link
 
 ## ⚙️ Instalación del entorno
 
