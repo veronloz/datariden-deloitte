@@ -11,8 +11,8 @@ Sigue los siguientes pasos para clonar el repositorio y ejecutar el dashboard en
 
 ### 1️⃣ Clonar el repositorio
 ```bash
-git clone https://github.com/tuusuario/data-dashboard.git
-cd data-dashboard
+git clone https://github.com/veronloz/datariden-deloitte.git
+cd datariden-deloitte
 ```
 
 ### 2️⃣ Crear un entorno virtual
@@ -37,5 +37,5 @@ pip install -r requirements.txt
 
 ### 5️⃣ Ejecutar el dashboard
 ```bash
-python scripts/dashboard_metro.py
+python scripts/main_dashboard.py
 ```
